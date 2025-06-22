@@ -10,7 +10,7 @@ using System.Linq;
 public enum CiwaStage
 {
     Briefing1,
-    Briefing3,
+    Briefing2,
     Assessment,
     Feedback
 }
@@ -34,13 +34,14 @@ public class CiwaManager : MonoBehaviour
 
     public GameObject Briefing1Canvas;
     public GameObject Briefing2Canvas;
-    public GameObject Briefing3Canvas;
+    public GameObject StartBtn;
     public GameObject AssessmentCanvas;
     public GameObject FeedbackCanvas;
 
     private string sessionId = "";
     private string currentQuestion = "";
     private bool assessmentComplete = false;
+    private bool answerSubmitted = false;
     private const int ciwaQuestionsCount = 10;
     private bool isTyping = false;
     private CiwaStage currentStage = CiwaStage.Briefing1;
@@ -72,6 +73,11 @@ public class CiwaManager : MonoBehaviour
 
         SetStageUI(currentStage);
 
+        foreach (Toggle toggle in scoreToggles)
+        {
+            toggle.onValueChanged.AddListener((isOn) => UpdateSubmitButtonState());
+        }
+
         // Start briefing flow
         StartCoroutine(RequestBriefing());
     }
@@ -80,17 +86,16 @@ public class CiwaManager : MonoBehaviour
     {
         // Basic setup
         Briefing1Canvas.SetActive(stage == CiwaStage.Briefing1);
-        Briefing2Canvas.SetActive(false); // Controlled manually in coroutine
-        Briefing3Canvas.SetActive(stage == CiwaStage.Briefing3); // Start as false in coroutine
+        Briefing2Canvas.SetActive(stage == CiwaStage.Briefing2); // Start as false in coroutine
         AssessmentCanvas.SetActive(stage == CiwaStage.Assessment);
         FeedbackCanvas.SetActive(stage == CiwaStage.Feedback);
 
         UpdateAgentAppearance(stage);
 
         // Special handling for Briefing3
-        if (stage == CiwaStage.Briefing3)
+        if (stage == CiwaStage.Briefing2)
         {
-            StartCoroutine(ShowBriefing2ThenBriefing3());
+            StartCoroutine(ShowBriefing2());
         }
     }
 
@@ -106,8 +111,6 @@ public class CiwaManager : MonoBehaviour
                 StartCoroutine(TriggerGreetingAfterDelay());
                 print("Briefing Stage");
                 break;
-
-
 
             case CiwaStage.Assessment:
                 agentTransform.localPosition = new Vector3(0, 1, 0);
@@ -199,28 +202,37 @@ public class CiwaManager : MonoBehaviour
             Debug.LogError("TTS Error (briefing): " + error);
         });
     }
-
-    private IEnumerator ShowBriefing2ThenBriefing3()
+    private IEnumerator ShowBriefing2()
     {
-        // Step 1: Show Briefing2Canvas, hide Briefing3Canvas
+        // Step 1: Show Briefing2Canvas and disable the button
         Briefing2Canvas.SetActive(true);
-        Briefing3Canvas.SetActive(false);
 
-        // Wait 10 seconds
-        yield return new WaitForSeconds(16f);
+        if (StartBtn != null)
+        {
+            Button btn = StartBtn.GetComponent<Button>();
+            if (btn != null)
+            {
+                btn.interactable = false; // Disable interaction
+            }
+            StartBtn.SetActive(true); // Show it, even if not interactable
+        }
 
-        // Step 2: Hide Briefing2Canvas, show Briefing3Canvas
-        Briefing2Canvas.SetActive(false);
-        Briefing3Canvas.SetActive(true);
+        // Step 2: Wait for agent to finish speaking
+        yield return new WaitWhile(() => audioSource.isPlaying);
+
+        // Step 3: Enable the button
+        if (StartBtn != null)
+        {
+            Button btn = StartBtn.GetComponent<Button>();
+            if (btn != null)
+            {
+                btn.interactable = true;
+            }
+        }
+
     }
 
 
-    public void StartAssessment()
-    {
-        sessionId = "";
-        assessmentComplete = false;
-        StartCoroutine(RequestNextQuestion());
-    }
 
     private IEnumerator RequestNextQuestion()
     {
@@ -271,6 +283,14 @@ public class CiwaManager : MonoBehaviour
         currentQuestion = res.question;
         int questionNumber = res.question_number;
 
+        answerSubmitted = false;
+        UpdateSubmitButtonState();
+
+        foreach (Toggle toggle in scoreToggles)
+        {
+            toggle.interactable = true;
+        }
+
         if (currentStage == CiwaStage.Assessment)
         {
             questionProgressNum.text = $"Question {questionNumber} of {ciwaQuestionsCount}";
@@ -281,6 +301,9 @@ public class CiwaManager : MonoBehaviour
         }
 
         questionProgressText.text = currentQuestion;
+        answerSubmitted = false;
+        UpdateSubmitButtonState();
+
         if (currentStage == CiwaStage.Assessment)
         {
             questionProgressNum.text = $"Question {questionNumber} of {ciwaQuestionsCount}";
@@ -306,6 +329,20 @@ public class CiwaManager : MonoBehaviour
         {
             Debug.LogError("TTS Error: " + error);
         });
+    }
+
+    private void UpdateSubmitButtonState()
+    {
+        if (currentStage != CiwaStage.Assessment) return;
+
+        bool hasSelection = scoreToggleGroup.ActiveToggles().Any();
+        bool canSubmit = hasSelection && !answerSubmitted;
+
+        Button submitBtn = AssessmentCanvas.GetComponentInChildren<Button>(true); // assumes only 1 submit button
+        if (submitBtn != null)
+        {
+            submitBtn.interactable = canSubmit;
+        }
     }
 
     private IEnumerator WaitThenListenBriefing()
@@ -368,22 +405,15 @@ public class CiwaManager : MonoBehaviour
                 audioSource.clip = clip;
                 audioSource.Play();
 
-                // Check if the user told their name → move to Briefing2
-                if (DetectNameInTranscript(userInput))
-                {
-                    currentStage = CiwaStage.Briefing3;
-                    SetStageUI(currentStage);
-                }
-                else
-                {
-                    // Keep listening again after reply in BOTH Briefing1 and Briefing2
-                    if (currentStage == CiwaStage.Briefing1 || currentStage == CiwaStage.Briefing3)
-                    {
-                        StartCoroutine(WaitThenListenBriefing());
-                    }
-                }
-            },
-            error =>
+                // Always move on to Briefing2 after the response
+                currentStage = CiwaStage.Briefing2;
+                SetStageUI(currentStage);
+
+                // Optionally: you could log or mark whether a name was detected
+                bool nameGiven = DetectNameInTranscript(userInput);
+                Debug.Log("Name detected: " + nameGiven);
+
+            }, error =>
             {
                 Debug.LogError("TTS Error (brief chat): " + error);
             });
@@ -447,17 +477,14 @@ public class CiwaManager : MonoBehaviour
             }
         }
 
-        // Allow chat in Briefing and Assessment stages
-        if (currentStage == CiwaStage.Briefing1 || currentStage == CiwaStage.Briefing3 || currentStage == CiwaStage.Assessment)
+        // Normal path for sending input
+        if (currentStage == CiwaStage.Briefing1 || currentStage == CiwaStage.Briefing2)
         {
-            if (currentStage == CiwaStage.Briefing1 || currentStage == CiwaStage.Briefing3)
-            {
-                StartCoroutine(SendBriefChat(transcript));  // use BriefChat in both Briefing1 & Briefing2
-            }
-            else
-            {
-                StartCoroutine(SendChat(transcript));       // normal Chat in Assessment
-            }
+            StartCoroutine(SendBriefChat(transcript));
+        }
+        else if (currentStage == CiwaStage.Assessment)
+        {
+            StartCoroutine(SendChat(transcript));
         }
     }
 
@@ -480,6 +507,7 @@ public class CiwaManager : MonoBehaviour
 
     public void ContinueToAssessment()
     {
+        Debug.Log("ContinueToAssessment called"); 
         StartCoroutine(SendContinue());
     }
 
@@ -558,6 +586,15 @@ public class CiwaManager : MonoBehaviour
                 scoreToggleGroup.SetAllTogglesOff();
 
                 StartCoroutine(SendScore(parsedScore));
+                answerSubmitted = true;
+
+                // 🔒 Lock toggles after submitting
+                foreach (Toggle toggle in scoreToggles)
+                {
+                    toggle.interactable = false;
+                }
+
+                UpdateSubmitButtonState();
             }
             else
             {
@@ -634,6 +671,12 @@ public class CiwaManager : MonoBehaviour
 
     private IEnumerator SendExplanation(string explanation)
     {
+        // Use fallback text if explanation is empty or whitespace
+        if (string.IsNullOrWhiteSpace(explanation))
+        {
+            explanation = "No answer provided.";
+        }
+
         ExplanationPayload payload = new ExplanationPayload { patient_reply = explanation };
         string json = JsonUtility.ToJson(payload);
 
@@ -667,6 +710,7 @@ public class CiwaManager : MonoBehaviour
             Debug.LogError("Explanation submission failed: " + www.error);
         }
     }
+
 
     private IEnumerator WaitForNextQuestion()
     {
@@ -742,14 +786,14 @@ public class CiwaManager : MonoBehaviour
 
     private bool DetectNameInTranscript(string transcript)
     {
-        transcript = transcript.ToLower();
+        // Guard – empty or whitespace never counts
+        if (string.IsNullOrWhiteSpace(transcript)) return false;
 
-        // Very simple example — customize as you like!
-        if (transcript.Contains("my name is") || transcript.Contains("i am ") || transcript.Contains("i'm "))
-        {
-            return true;
-        }
+        transcript = transcript.ToLowerInvariant();
 
-        return false;
+        // Very simple keyword heuristic
+        return transcript.Contains("my name is") ||
+               transcript.Contains("i am ") ||
+               transcript.Contains("i'm ");
     }
 }
