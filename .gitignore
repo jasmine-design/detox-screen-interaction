@@ -1,0 +1,25 @@
+# --- Unity ---
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+MemoryCaptures/
+UserSettings/
+Logs/
+
+# --- Visual Studio ---
+.vs/
+*.csproj
+*.unityproj
+*.sln
+*.user
+*.suo
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+
+# --- JetBrains Rider ---
+.idea/
+*.sln.iml
