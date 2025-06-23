@@ -104,22 +104,23 @@ public class CiwaManager : MonoBehaviour
         switch (stage)
         {
             case CiwaStage.Briefing1:
-                Vector3 pos = agentTransform.localPosition;
-                pos.y = 1;
-                agentTransform.localPosition = pos;
+                //Vector3 pos = agentTransform.localPosition;
+                //pos.y = 1;
+               // agentTransform.localPosition = pos;
                 agentAnimator.Play("Idle");
                 StartCoroutine(TriggerGreetingAfterDelay());
                 print("Briefing Stage");
                 break;
 
             case CiwaStage.Assessment:
-                agentTransform.localPosition = new Vector3(0, 1, 0);
+                
+                //agentTransform.localPosition = new Vector3(0, 1, 0);
                 agentAnimator.Play("Idle");
                 print("Assessment Stage");
                 break;
 
             case CiwaStage.Feedback:
-                agentTransform.localPosition = new Vector3(0, 1, 0);
+               // agentTransform.localPosition = new Vector3(0, 1, 0);
                 agentAnimator.Play("Idle");
                 print("Feedback Stage");
                 break;

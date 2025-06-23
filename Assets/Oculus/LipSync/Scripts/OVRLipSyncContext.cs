@@ -390,4 +390,9 @@ public class OVRLipSyncContext : OVRLipSyncContextBase
                 break;
         }
     }
+
+    public OVRLipSync.Frame CurrentFrame
+    {
+        get { return this.Frame; }
+    }
 }
