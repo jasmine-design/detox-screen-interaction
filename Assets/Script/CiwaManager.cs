@@ -37,13 +37,16 @@ public class CiwaManager : MonoBehaviour
     public GameObject StartBtn;
     public GameObject AssessmentCanvas;
     public GameObject FeedbackCanvas;
+    public GameObject ListeningCanvas;
 
     private string sessionId = "";
     private string currentQuestion = "";
     private bool assessmentComplete = false;
     private bool answerSubmitted = false;
+    private bool waitingForNextQuestion = false;
     private const int ciwaQuestionsCount = 10;
     private bool isTyping = false;
+    private bool isListening = false;
     private CiwaStage currentStage = CiwaStage.Briefing1;
     private readonly string[] ciwaQuestions = new string[]
     {
@@ -231,6 +234,12 @@ public class CiwaManager : MonoBehaviour
             }
         }
 
+        // 🔊 Start listening to user after the agent finishes speaking
+        //if (enableVoiceInput && !isTyping)
+        //{
+          //  StartCoroutine(WaitThenListenBriefing());
+        //}
+        
     }
 
 
@@ -323,6 +332,17 @@ public class CiwaManager : MonoBehaviour
         {
             audioSource.clip = clip;
             audioSource.Play();
+
+            // 🔒 Immediately disable submit while TTS plays
+            Button submitBtn = AssessmentCanvas.GetComponentInChildren<Button>(true);
+            if (submitBtn != null)
+            {
+                submitBtn.interactable = false;
+            }
+
+            // 🔓 Re-check after TTS finishes
+            StartCoroutine(EnableSubmitWhenAudioDone());
+
             if (currentStage == CiwaStage.Assessment)
                 StartCoroutine(WaitThenListen());
         },
@@ -337,13 +357,20 @@ public class CiwaManager : MonoBehaviour
         if (currentStage != CiwaStage.Assessment) return;
 
         bool hasSelection = scoreToggleGroup.ActiveToggles().Any();
-        bool canSubmit = hasSelection && !answerSubmitted;
+        bool audioDone = !audioSource.isPlaying;
+        bool canSubmit = hasSelection && audioDone && !answerSubmitted && !isListening;
 
-        Button submitBtn = AssessmentCanvas.GetComponentInChildren<Button>(true); // assumes only 1 submit button
+        Button submitBtn = AssessmentCanvas.GetComponentInChildren<Button>(true);
         if (submitBtn != null)
         {
             submitBtn.interactable = canSubmit;
         }
+    }
+
+    private IEnumerator EnableSubmitWhenAudioDone()
+    {
+        yield return new WaitWhile(() => audioSource.isPlaying);
+        UpdateSubmitButtonState();
     }
 
     private IEnumerator WaitThenListenBriefing()
@@ -365,8 +392,12 @@ public class CiwaManager : MonoBehaviour
         agentAnimator.SetTrigger("StartListening");
 
         stt.StartRecording();
+        ListeningCanvas.SetActive(true);
+
         yield return new WaitForSeconds(5);  // adjust as needed
-        stt.StopAndSendWithCallback(OnSTTComplete);
+        stt.StopAndSendWithCallback(OnBriefingSTTComplete);
+
+        ListeningCanvas.SetActive(false);
 
         agentAnimator.SetTrigger("BackToIdle");
     }
@@ -442,12 +473,20 @@ public class CiwaManager : MonoBehaviour
         }
 
         agentAnimator.SetTrigger("StartListening");
+        isListening = true;
+        UpdateSubmitButtonState();
 
         stt.StartRecording();
+        ListeningCanvas.SetActive(true);
+
         yield return new WaitForSeconds(10);
         stt.StopAndSendWithCallback(OnSTTComplete);
+        
+        ListeningCanvas.SetActive(false);
 
         agentAnimator.SetTrigger("BackToIdle");
+        isListening = false;
+        UpdateSubmitButtonState();
     }
 
     private IEnumerator TriggerGreetingAfterDelay()
@@ -524,7 +563,7 @@ public class CiwaManager : MonoBehaviour
             Debug.Log("Moved to Assessment phase.");
             currentStage = CiwaStage.Assessment;
             SetStageUI(currentStage);
-            StartCoroutine(RequestNextQuestion());
+            StartCoroutine(WaitForNextQuestion());
         }
         else
         {
@@ -652,15 +691,26 @@ public class CiwaManager : MonoBehaviour
     {
         yield return new WaitWhile(() => audioSource.isPlaying);
 
-        statusText.text = "Listening for your explanation...";
+        if (ListeningCanvas != null)
+        {
+            ListeningCanvas.SetActive(true);  // ✅ Show Listening Canvas
+            Debug.Log("🎧 ListeningCanvas shown during explanation");
+        }
 
+        statusText.text = "Listening for your explanation...";
         agentAnimator.SetTrigger("StartListening");
 
         stt.StartRecording();
-        yield return new WaitForSeconds(5);  // adjust duration as needed
+        yield return new WaitForSeconds(10);
         stt.StopAndSendWithCallback(OnExplanationSTTComplete);
 
         agentAnimator.SetTrigger("BackToIdle");
+
+        if (ListeningCanvas != null)
+        {
+            ListeningCanvas.SetActive(false);  // ✅ Hide again
+            Debug.Log("🛑 ListeningCanvas hidden after explanation");
+        }
     }
 
     private void OnExplanationSTTComplete(string transcript)
@@ -673,13 +723,14 @@ public class CiwaManager : MonoBehaviour
     private IEnumerator SendExplanation(string explanation)
     {
         // Use fallback text if explanation is empty or whitespace
-        if (string.IsNullOrWhiteSpace(explanation))
+        if (string.IsNullOrWhiteSpace(explanation) || explanation.Length < 3)
         {
             explanation = "No answer provided.";
         }
 
         ExplanationPayload payload = new ExplanationPayload { patient_reply = explanation };
         string json = JsonUtility.ToJson(payload);
+        
 
         UnityWebRequest www = new UnityWebRequest("http://localhost:5002/ciwa_explanation", "POST");
         www.uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(json));
@@ -688,23 +739,36 @@ public class CiwaManager : MonoBehaviour
 
         yield return www.SendWebRequest();
 
+
+
         if (www.result == UnityWebRequest.Result.Success)
         {
             string jsonResponse = www.downloadHandler.text;
-            var finalData = JsonUtility.FromJson<FinalResponse>(jsonResponse);
-
-            statusText.text = finalData.final_response;
-
-            kokoroTTS.RequestSpeech(finalData.final_response, clip =>
+            if (jsonResponse.Contains("final_response"))
             {
-                audioSource.clip = clip;
-                audioSource.Play();
-                StartCoroutine(WaitForNextQuestion());
-            },
-            error =>
+                var finalData = JsonUtility.FromJson<FinalResponse>(jsonResponse);
+
+                statusText.text = finalData.final_response;
+
+                kokoroTTS.RequestSpeech(finalData.final_response, clip =>
+                {
+                    audioSource.clip = clip;
+                    audioSource.Play();
+                    StartCoroutine(WaitForNextQuestion());
+                },
+                error =>
+                {
+                    Debug.LogError("TTS Error (final response): " + error);
+                });
+            }
+
+            else
             {
-                Debug.LogError("TTS Error (final response): " + error);
-            });
+                Debug.LogWarning("final_response not found in explanation result.");
+                statusText.text = "Sorry, I couldn't understand your explanation. Let's continue.";
+                StartCoroutine(RequestNextQuestion());
+                yield break;
+            }
         }
         else
         {
@@ -715,8 +779,21 @@ public class CiwaManager : MonoBehaviour
 
     private IEnumerator WaitForNextQuestion()
     {
+        if (waitingForNextQuestion)
+        {
+            Debug.LogWarning("Already waiting for next question. Skipping duplicate call.");
+            yield break;
+        }
+
+        waitingForNextQuestion = true;
+
+        Debug.Log("Waiting for audio to finish before next question...");
         yield return new WaitWhile(() => audioSource.isPlaying);
-        StartCoroutine(RequestNextQuestion());
+        Debug.Log("Audio finished, requesting next question.");
+
+        yield return RequestNextQuestion();
+
+        waitingForNextQuestion = false;
     }
 
     private IEnumerator SendChat(string userInput)
