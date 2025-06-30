@@ -1,0 +1,7 @@
+*.onnx
+*.pth
+*.bin
+venv/
+model/
+output*.wav
+sessions/

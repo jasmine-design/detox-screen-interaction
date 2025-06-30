@@ -1,0 +1,24 @@
+# Core dependencies
+flask                           # REST API server
+torch                           # PyTorch (GPU support if installed with CUDA)
+soundfile                       # Audio file I/O
+pydub                           # Audio format conversion
+wheel                           # Needed for building packages
+setuptools                      # Needed for installing some packages
+
+# TTS (Kokoro and related)
+kokoro                          # Kokoro TTS core
+misaki                          # G2P for Kokoro
+huggingface-hub                 # Model download integration
+phonemizer-fork                 # Phoneme generation
+espeakng-loader                 # eSpeak-ng loader
+num2words                       # For converting numbers to words
+
+# STT (Speech-to-Text)
+vosk                            # Offline speech recognition
+
+# NLP & text processing
+spacy                           # Tokenization, sentence segmentation
+
+# Optional interface (remove if unused in backend)
+gradio                          # Optional: Web UI / demo frontend

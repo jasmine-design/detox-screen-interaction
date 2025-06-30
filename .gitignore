@@ -1,0 +1,55 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environment
+venv/
+ENV/
+env/
+.venv/
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project-specific (Kokoro TTS, STT, model files)
+output*.wav
+*.pth
+*.onnx
+
+# Model folders
+voices/
+voices/**/*.pt
+model/
+model/**/*.pt
+
+# Config
+config.json  # ⚠️ If this contains secrets or machine-specific paths
+
+# Docker-related (optional)
+__docker_cache__/
+*.log
